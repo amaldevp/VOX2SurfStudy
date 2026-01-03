@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mesh Quality Study</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/OBJLoader.js"></script>
+    
+    <style>
+        :root { --primary: #2563eb; --bg: #f8fafc; --text: #1e293b; --card-bg: #ffffff; }
+        body { margin: 0; font-family: 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+        #overlay { 
+    position: fixed; 
+    inset: 0; 
+    background: #0f172a; 
+    z-index: 10000; 
+    display: flex !important; /* Forces it to show on page load */
+    align-items: center; 
+    justify-content: center; 
+}
+        /* #overlay { position: fixed; inset: 0; background: #0f172a; z-index: 10000; display: flex; align-items: center; justify-content: center; } */
+        .modal { background: white; padding: 2.5rem; border-radius: 16px; width: 450px; text-align: center; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5); }
+
+        .header { background: white; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0; position: relative; }
+        #progress-bar-container { position: absolute; top: 0; left: 0; width: 100%; height: 5px; background: #e2e8f0; }
+        #progress-bar { height: 100%; background: var(--primary); width: 0%; transition: width 0.4s; }
+
+        #canvas-container { display: flex; flex: 1; padding: 20px; gap: 20px; background: #f1f5f9; align-items: stretch; }
+        .mesh-card { flex: 1; background: var(--card-bg); border-radius: 12px; border: 1px solid #e2e8f0; display: flex; flex-direction: column; overflow: hidden; }
+        .mesh-title { padding: 10px; font-size: 0.8rem; font-weight: 800; text-align: center; background: #f8fafc; color: #64748b; text-transform: uppercase; border-bottom: 1px solid #f1f5f9; }
+        .mesh-box { flex: 1; width: 100%; cursor: grab; }
+
+        #ui-container { padding: 25px; background: white; border-top: 1px solid #e2e8f0; text-align: center; }
+        .instruction-text { font-size: 1.1rem; font-weight: 600; color: #334155; margin-bottom: 15px; }
+        .radio-group { display: inline-flex; gap: 20px; margin-bottom: 20px; background: #f1f5f9; padding: 12px 24px; border-radius: 50px; }
+        button { padding: 0.9rem 3.5rem; background: var(--primary); color: white; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; font-size: 1rem; }
+        button:disabled { background: #94a3b8; }
+
+    </style>
+</head>
+<body>
+
+    <div id="overlay">
+        <div class="modal">
+            <h2 style="color: var(--primary);">Mesh Perceptual Study</h2>
+            <p style="text-align: left; color: #64748b; line-height: 1.5;">Compare the <b>Input Voxel</b> to the options and select the best match.</p>
+            <input type="number" id="user-age" placeholder="Age" style="width:100%; padding:12px; margin-bottom:15px; border:1px solid #ddd; border-radius:8px;">
+            <select id="user-gender" style="width:100%; padding:12px; margin-bottom:25px; border:1px solid #ddd; border-radius:8px;">
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+                <option value="other">Other</option>
+            </select>
+            <button onclick="startStudy()">Begin Evaluation</button>
+        </div>
+    </div>
+
+    <div id="progress-bar-container"><div id="progress-bar"></div></div>
+    <div class="header">
+        <span style="font-weight: 800; color: var(--primary);">Evaluation Portal (click & drag or scroll, to zoom in, zoom out or rotate the model)</span>
+        <span id="step-counter">Loading...</span>
+    </div>
+
+    <div id="canvas-container">
+        <div class="mesh-card"><div class="mesh-title">Input voxel</div><div id="mesh1" class="mesh-box"></div></div>
+        <div class="mesh-card"><div class="mesh-title">Option 1</div><div id="mesh2" class="mesh-box"></div></div>
+        <div class="mesh-card"><div class="mesh-title">Option 2</div><div id="mesh3" class="mesh-box"></div></div>
+    </div>
+
+    <div id="ui-container">
+        <p class="instruction-text">Which mesh best matches the input voxel?</p>
+        <div class="radio-group">
+            <label><input type="radio" name="choice" value="1"> Option 1</label>
+            <label><input type="radio" name="choice" value="2"> Option 2</label>
+            <label><input type="radio" name="choice" value="both"> Both Are Good</label>
+            <label><input type="radio" name="choice" value="none"> None</label>
+        </div><br>
+        <button id="submitBtn" onclick="submitData()">Submit Answer</button>
+    </div>
+
+    <script>
+        // localStorage.clear(); // Uncomment this line if you want to force the form every refresh during testing
+
+               const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxqRsyl4fOi2Txt7klIrnDyeIYDitk4dtgAj5Y3twqRzR1MQAVfkLMr5ebEuqPOqv1z/exec"; 
+         
+        let allTrials = []; 
+        let currentIndex = parseInt(localStorage.getItem('study_idx')) || 0;
+        let userID = localStorage.getItem('study_userID') || "ID_" + Math.random().toString(36).substr(2, 9);
+        let activeScenes = [], isSyncing = false;
+
+async function loadData() {
+    // FORCE CLEAR for your current testing session 
+    // (You can remove this once you see the form working)
+    localStorage.clear(); 
+
+    try {
+        console.log("Loading prefixes...");
+        const res = await fetch('prefixes.txt');
+        const text = await res.text();
+        const prefixes = text.split(/[\n,]+/).map(s => s.trim()).filter(p => p);
+        
+        const methods = ['ndc', 'nmc', 'nmcl'];
+        allTrials = [];
+        prefixes.forEach(p => {
+            methods.forEach(m => {
+                allTrials.push({ prefix: p, method: m });
+            });
+        });
+        allTrials.sort(() => 0.5 - Math.random());
+
+        // Check if the user has ALREADY filled the profile
+        const isFilled = localStorage.getItem('study_profile_filled');
+        
+        if (isFilled === 'true') {
+            console.log("Profile found, skipping form.");
+            document.getElementById('overlay').style.setProperty('display', 'none', 'important');
+            initTrial();
+        } else {
+            console.log("No profile found. Keeping form visible.");
+            // We do nothing, which keeps the CSS 'display: flex' active
+        }
+
+    } catch (e) { 
+        console.error("Critical Error:", e);
+        document.getElementById('step-counter').innerText = "Error loading files.";
+    }
+}
+
+// --- 1. START STUDY ACTION ---
+function startStudy() {
+    const ageInput = document.getElementById('user-age');
+    const age = ageInput.value;
+    
+    if(!age) {
+        alert("Please enter your age to continue.");
+        return;
+    }
+
+    // Safety check: ensure prefixes are actually loaded
+    if (allTrials.length === 0) {
+        alert("Still loading mesh data... please wait a moment.");
+        return;
+    }
+
+    console.log("Form validated. Saving profile...");
+
+    // 1. Save state so the form doesn't come back on refresh
+    localStorage.setItem('study_userID', userID);
+    localStorage.setItem('study_profile_filled', 'true');
+    localStorage.setItem('study_idx', '0');
+
+    // 2. Send Profile to Google Sheets
+    fetch(SCRIPT_URL, { 
+        method: 'POST', 
+        mode: 'no-cors', 
+        body: JSON.stringify({ 
+            dataType: "profile", 
+            userID: userID, 
+            age: age, 
+            gender: document.getElementById('user-gender').value 
+        }) 
+    });
+
+    // 3. FORCE HIDE the overlay
+    const overlay = document.getElementById('overlay');
+    overlay.style.setProperty('display', 'none', 'important');
+
+    // 4. Start the first trial
+    console.log("Starting Trial 0...");
+    initTrial();
+}
+
+// --- 2. INITIALIZE TRIAL ---
+function initTrial() {
+    // Basic cleanup
+    isSyncing = false; 
+    
+    if (currentIndex >= allTrials.length) {
+        showFinalScreen();
+        return;
+    }
+
+    const trial = allTrials[currentIndex];
+    
+    // Update UI
+    document.getElementById('step-counter').innerText = `Step ${currentIndex + 1} of ${allTrials.length}`;
+    const progress = (currentIndex / allTrials.length) * 100;
+    document.getElementById('progress-bar').style.width = progress + "%";
+
+    // Randomize Option 1 and Option 2
+    const pool = [
+        { type: 'SV', url: `sv/${trial.prefix}.obj` },
+        { type: trial.method.toUpperCase(), url: `${trial.method}/${trial.prefix}.obj` }
+    ].sort(() => Math.random() - 0.5);
+
+    window.currentTrial = {
+        prefix: trial.prefix,
+        method: trial.method,
+        order: [
+            {type: 'VOX', url: `vox/${trial.prefix}.obj`}, 
+            pool[0], 
+            pool[1]
+        ]
+    };
+
+    // Initialize the 3 scenes
+    try {
+        activeScenes = [
+            createThreeScene('mesh1', window.currentTrial.order[0].url),
+            createThreeScene('mesh2', window.currentTrial.order[1].url),
+            createThreeScene('mesh3', window.currentTrial.order[2].url)
+        ];
+        setupSync();
+    } catch (err) {
+        console.error("Error creating 3D scenes:", err);
+    }
+}
+
+        function createThreeScene(divId, url) {
+            const container = document.getElementById(divId);
+            container.innerHTML = ''; 
+            const scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xffffff);
+            const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 1000);
+            const renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            container.appendChild(renderer.domElement);
+            const controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+
+            new THREE.OBJLoader().load(url, (obj) => {
+                obj.traverse(c => { if(c.isMesh) {
+                    c.geometry.computeVertexNormals();
+                    c.material = new THREE.MeshNormalMaterial({ side: THREE.DoubleSide });
+                }});
+                const box = new THREE.Box3().setFromObject(obj);
+                const size = box.getSize(new THREE.Vector3());
+                const center = box.getCenter(new THREE.Vector3());
+                const scale = 2 / Math.max(size.x, size.y, size.z);
+                obj.scale.set(scale, scale, scale);
+                obj.position.sub(center.multiplyScalar(scale));
+                scene.add(obj);
+                camera.position.z = 4;
+            });
+
+            function animate() { requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); }
+            animate();
+            return { camera, controls };
+        }
+
+        function setupSync() {
+            activeScenes.forEach(m => {
+                m.controls.addEventListener('change', () => {
+                    if (isSyncing) return;
+                    isSyncing = true;
+                    activeScenes.forEach(s => { if(s !== m) {
+                        s.camera.position.copy(m.camera.position);
+                        s.camera.quaternion.copy(m.camera.quaternion);
+                        s.controls.target.copy(m.controls.target);
+                        s.controls.update();
+                    }});
+                    isSyncing = false;
+                });
+            });
+        }
+
+        function submitData() {
+            const sel = document.querySelector('input[name="choice"]:checked');
+            if(!sel) return alert("Please select an option.");
+            
+            const btn = document.getElementById('submitBtn');
+            btn.disabled = true;
+            btn.innerText = "Sending...";
+
+            const payload = {
+                dataType: "trial",
+                userID: userID,
+                prefix: window.currentTrial.prefix,
+                method: window.currentTrial.method,
+                choice: sel.value,
+                option1: window.currentTrial.order[1].type,
+                option2: window.currentTrial.order[2].type
+            };
+
+            // SEND TRIAL DATA TO GOOGLE
+            fetch(SCRIPT_URL, { 
+                method: 'POST', 
+                mode: 'no-cors', 
+                body: JSON.stringify(payload) 
+            }).then(() => {
+                currentIndex++;
+                localStorage.setItem('study_idx', currentIndex);
+                document.querySelectorAll('input[name="choice"]').forEach(r => r.checked = false);
+                btn.disabled = false;
+                btn.innerText = "Submit Answer";
+                initTrial();
+            }).catch(err => {
+                alert("Network error, please try again.");
+                btn.disabled = false;
+            });
+        }
+
+        function showFinalScreen() {
+            document.body.innerHTML = `
+                <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; background:#f8fafc; text-align:center; padding:20px;">
+                    <h1 style="color:#2563eb; font-size:3rem;">Thank You!</h1>
+                    <p style="font-size:1.2rem; color:#64748b; max-width:600px;">Your responses have been successfully recorded. Your contribution is vital to our research on 3D reconstruction quality.</p>
+                    <button onclick="restartStudy()" style="margin-top:30px; padding:15px 40px; background:#1e293b; color:white; border:none; border-radius:8px; font-weight:bold; cursor:pointer;">Restart Study</button>
+                </div>
+            `;
+        }
+
+        function restartStudy() {
+            localStorage.clear();
+            location.reload();
+        }
+
+        loadData();
+    </script>
+</body>
+</html>
