@@ -90,40 +90,36 @@
         let activeScenes = [], isSyncing = false;
 
 async function loadData() {
-    // FORCE CLEAR for your current testing session 
-    // (You can remove this once you see the form working)
-    localStorage.clear(); 
-
     try {
-        console.log("Loading prefixes...");
         const res = await fetch('prefixes.txt');
         const text = await res.text();
+        // Split and clean prefixes
         const prefixes = text.split(/[\n,]+/).map(s => s.trim()).filter(p => p);
         
+        console.log("Number of prefixes found:", prefixes.length); // Should be 30
+
         const methods = ['ndc', 'nmc', 'nmcl'];
-        allTrials = [];
+        allTrials = []; // Reset the global array
+
+        // Create exactly 90 trials (30 prefixes * 3 methods)
         prefixes.forEach(p => {
             methods.forEach(m => {
                 allTrials.push({ prefix: p, method: m });
             });
         });
+
+        console.log("Total trials generated:", allTrials.length); // MUST be 90
+
+        // Shuffle the 90 trials so the user doesn't see the same model 3 times in a row
         allTrials.sort(() => 0.5 - Math.random());
 
-        // Check if the user has ALREADY filled the profile
-        const isFilled = localStorage.getItem('study_profile_filled');
-        
-        if (isFilled === 'true') {
-            console.log("Profile found, skipping form.");
+        // Check if user should see the form or the trials
+        if (localStorage.getItem('study_profile_filled') === 'true') {
             document.getElementById('overlay').style.setProperty('display', 'none', 'important');
             initTrial();
-        } else {
-            console.log("No profile found. Keeping form visible.");
-            // We do nothing, which keeps the CSS 'display: flex' active
         }
-
     } catch (e) { 
-        console.error("Critical Error:", e);
-        document.getElementById('step-counter').innerText = "Error loading files.";
+        console.error("Data loading failed:", e); 
     }
 }
 
