@@ -75,40 +75,61 @@
         let activeScenes = [], isSyncing = false;
         const loader = new THREE.OBJLoader();
 
-        async function loadData() {
-            try {
-                const res = await fetch('prefixes.txt');
-                const text = await res.text();
-                const prefixes = text.split(/[\n,]+/).map(s => s.trim()).filter(p => p);
-                const methods = ['ndc', 'nmc', 'nmcl'];
-                allTrials = [];
-                prefixes.forEach(p => {
-                    methods.forEach(m => { allTrials.push({ prefix: p, method: m }); });
-                });
-                allTrials.sort(() => 0.5 - Math.random());
+      async function loadData() {
+    try {
+        const res = await fetch('prefixes.txt');
+        const text = await res.text();
+        const prefixes = text.split(/[\n,]+/).map(s => s.trim()).filter(p => p);
+        const methods = ['ndc', 'nmc', 'nmcl'];
+        
+        allTrials = [];
+        prefixes.forEach(p => {
+            methods.forEach(m => { allTrials.push({ prefix: p, method: m }); });
+        });
+        allTrials.sort(() => 0.5 - Math.random());
 
-                if (localStorage.getItem('study_profile_filled') === 'true') {
-                    document.getElementById('overlay').style.display = 'none';
-                    initTrial();
-                }
-            } catch (e) { console.error("Load failed:", e); }
-        }
+        console.log("Data loaded. Checking profile status...");
 
-        function startStudy() {
-            const age = document.getElementById('user-age').value;
-            if(!age) return alert("Please enter your age.");
-            localStorage.setItem('study_userID', userID);
-            localStorage.setItem('study_profile_filled', 'true');
-            localStorage.setItem('study_idx', '0');
-            
-            fetch(SCRIPT_URL, { 
-                method: 'POST', mode: 'no-cors', 
-                body: JSON.stringify({ dataType: "profile", userID, age, gender: document.getElementById('user-gender').value }) 
-            });
-
-            document.getElementById('overlay').style.display = 'none';
+        // FIX: Only auto-start if the profile was definitely filled AND we aren't at the end
+        if (localStorage.getItem('study_profile_filled') === 'true') {
+            document.getElementById('overlay').style.setProperty('display', 'none', 'important');
             initTrial();
+        } else {
+            // Force the overlay to be visible if no profile exists
+            document.getElementById('overlay').style.setProperty('display', 'flex', 'important');
+            console.log("Awaiting user profile input.");
         }
+    } catch (e) { 
+        console.error("Load failed:", e); 
+    }
+}
+
+function startStudy() {
+    const age = document.getElementById('user-age').value;
+    const gender = document.getElementById('user-gender').value;
+
+    if(!age) {
+        alert("Please enter your age.");
+        return;
+    }
+
+    // 1. Save progress markers
+    localStorage.setItem('study_userID', userID);
+    localStorage.setItem('study_profile_filled', 'true');
+    localStorage.setItem('study_idx', '0');
+    currentIndex = 0;
+
+    // 2. Send profile data
+    fetch(SCRIPT_URL, { 
+        method: 'POST', 
+        mode: 'no-cors', 
+        body: JSON.stringify({ dataType: "profile", userID, age, gender }) 
+    });
+
+    // 3. Hide overlay and START the first trial
+    document.getElementById('overlay').style.setProperty('display', 'none', 'important');
+    initTrial();
+}
 
         function createThreeScene(divId, url) {
             const container = document.getElementById(divId);
