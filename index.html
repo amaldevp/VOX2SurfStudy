@@ -24,13 +24,13 @@
         .mesh-title { padding: 10px; font-size: 0.8rem; font-weight: 800; text-align: center; background: #f8fafc; color: #64748b; text-transform: uppercase; border-bottom: 1px solid #f1f5f9; z-index: 10; }
         .view-container { flex: 1; width: 100%; cursor: grab; }
 
-        /* Background Canvas */
+        /* The single canvas that covers the background */
         #main-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
 
         #ui-container { padding: 20px; background: white; border-top: 1px solid #e2e8f0; text-align: center; }
         .radio-group { display: inline-flex; gap: 20px; margin-bottom: 15px; background: #f1f5f9; padding: 10px 20px; border-radius: 50px; }
-        button { padding: 0.8rem 3rem; background: var(--primary); color: white; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; transition: opacity 0.2s; }
-        button:hover { opacity: 0.9; }
+        button { padding: 0.8rem 3rem; background: var(--primary); color: white; border: none; border-radius: 8px; font-weight: 700; cursor: pointer; }
+        button:disabled { background: #94a3b8; }
     </style>
 </head>
 <body>
@@ -38,7 +38,6 @@
     <div id="overlay">
         <div class="modal">
             <h2 style="color: var(--primary);">Mesh Perceptual Study</h2>
-            <p style="color: #64748b; margin-bottom: 20px;">Help us evaluate 3D reconstruction quality.</p>
             <input type="number" id="user-age" placeholder="Age" style="width:100%; padding:12px; margin-bottom:15px; border:1px solid #ddd; border-radius:8px;">
             <select id="user-gender" style="width:100%; padding:12px; margin-bottom:25px; border:1px solid #ddd; border-radius:8px;">
                 <option value="male">Male</option>
@@ -52,7 +51,7 @@
     <div id="progress-bar-container"><div id="progress-bar"></div></div>
     <div class="header">
         <span style="font-weight: 800; color: var(--primary);">Evaluation Portal</span>
-        <span id="step-counter">Initializing...</span>
+        <span id="step-counter">Loading...</span>
     </div>
 
     <div id="canvas-container">
@@ -66,23 +65,21 @@
         <div class="radio-group">
             <label><input type="radio" name="choice" value="1"> Option 1</label>
             <label><input type="radio" name="choice" value="2"> Option 2</label>
-            <label><input type="radio" name="choice" value="both"> Both Are Good</label>
+            <label><input type="radio" name="choice" value="both"> Both</label>
             <label><input type="radio" name="choice" value="none"> None</label>
         </div><br>
         <button id="submitBtn" onclick="submitData()">Submit Answer</button>
     </div>
 
     <script>
-        const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxqRsyl4fOi2Txt7klIrnDyeIYDitk4dtgAj5Y3twqRzR1MQAVfkLMr5ebEuqPOqv1z/exec"; 
-        
-        let allTrials = [];
-        let currentIndex = parseInt(localStorage.getItem('study_idx')) || 0;
+        const SCRIPT_URL = "YOUR_GOOGLE_SCRIPT_URL"; 
+        let allTrials = [], currentIndex = parseInt(localStorage.getItem('study_idx')) || 0;
         let userID = localStorage.getItem('study_userID') || "ID_" + Math.random().toString(36).substr(2, 9);
         
         let renderer, views = [];
         const loader = new THREE.OBJLoader();
 
-        // 1. SCISSOR RENDERING SETUP
+        // 1. Setup the Single Renderer and Viewports
         function initGlobalRenderer() {
             const canvas = document.getElementById('main-canvas');
             renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
@@ -99,12 +96,11 @@
                 
                 const controls = new THREE.OrbitControls(camera, domElem);
                 controls.enableDamping = true;
-                controls.dampingFactor = 0.1;
 
                 return { domElem, scene, camera, controls };
             });
 
-            // Camera Syncing Logic
+            // Sync controls
             views.forEach(v => {
                 v.controls.addEventListener('change', () => {
                     views.forEach(other => {
@@ -136,9 +132,12 @@
 
             views.forEach(view => {
                 view.controls.update();
+                
+                // Get the bounding box of the placeholder div
                 const rect = view.domElem.getBoundingClientRect();
                 const canvasRect = canvas.getBoundingClientRect();
 
+                // Calculate scissor and viewport
                 const left = rect.left - canvasRect.left;
                 const bottom = canvasRect.bottom - rect.bottom;
                 const w = rect.width;
@@ -154,7 +153,7 @@
             });
         }
 
-        // 2. MEMORY MANAGEMENT
+        // 2. Optimized Mesh Management
         function clearScene(scene) {
             scene.traverse(object => {
                 if (!object.isMesh) return;
@@ -168,7 +167,6 @@
             while(scene.children.length > 0) scene.remove(scene.children[0]);
         }
 
-        // 3. TRIAL INITIALIZATION & PREFETCHING
         async function initTrial() {
             if (currentIndex >= allTrials.length) return showFinalScreen();
 
@@ -176,7 +174,6 @@
             document.getElementById('step-counter').innerText = `Step ${currentIndex + 1} of ${allTrials.length}`;
             document.getElementById('progress-bar').style.width = (currentIndex / allTrials.length) * 100 + "%";
 
-            // Randomize selection
             const pool = [
                 { type: 'SV', url: `sv/${trial.prefix}.obj` },
                 { type: trial.method.toUpperCase(), url: `${trial.method}/${trial.prefix}.obj` }
@@ -188,18 +185,13 @@
                 order: [{type: 'VOX', url: `vox/${trial.prefix}.obj`}, pool[0], pool[1]]
             };
 
-            // Load new meshes
+            // Load meshes into scenes
             window.currentTrial.order.forEach((data, i) => {
                 const view = views[i];
                 clearScene(view.scene);
                 
                 loader.load(data.url, (obj) => {
-                    obj.traverse(c => { 
-                        if(c.isMesh) {
-                            c.geometry.computeVertexNormals();
-                            c.material = new THREE.MeshNormalMaterial({ side: THREE.DoubleSide }); 
-                        }
-                    });
+                    obj.traverse(c => { if(c.isMesh) c.material = new THREE.MeshNormalMaterial({ side: THREE.DoubleSide }); });
                     
                     const box = new THREE.Box3().setFromObject(obj);
                     const center = box.getCenter(new THREE.Vector3());
@@ -211,16 +203,9 @@
                     view.scene.add(obj);
                 });
             });
-
-            // PREFETCH NEXT TRIAL
-            const nextTrial = allTrials[currentIndex + 1];
-            if (nextTrial) {
-                const methods = ['vox', 'sv', nextTrial.method];
-                methods.forEach(m => fetch(`${m}/${nextTrial.prefix}.obj`));
-            }
         }
 
-        // 4. DATA HANDLING
+        // --- Standard Logic ---
         async function loadData() {
             try {
                 const res = await fetch('prefixes.txt');
@@ -238,60 +223,31 @@
                     document.getElementById('overlay').style.display = 'none';
                     initTrial();
                 }
-            } catch (e) { console.error("Error loading data:", e); }
+            } catch (e) { console.error(e); }
         }
 
         function startStudy() {
             const age = document.getElementById('user-age').value;
-            if(!age) return alert("Please enter your age.");
+            if(!age) return alert("Enter age.");
             
             localStorage.setItem('study_userID', userID);
             localStorage.setItem('study_profile_filled', 'true');
-            localStorage.setItem('study_idx', '0');
-
-            // Background send profile
-            fetch(SCRIPT_URL, { 
-                method: 'POST', mode: 'no-cors', 
-                body: JSON.stringify({ dataType: "profile", userID, age, gender: document.getElementById('user-gender').value }) 
-            });
-
             document.getElementById('overlay').style.display = 'none';
             initTrial();
         }
 
         function submitData() {
             const sel = document.querySelector('input[name="choice"]:checked');
-            if(!sel) return alert("Please select an option.");
+            if(!sel) return alert("Select an option.");
             
-            // Capture payload
-            const payload = {
-                dataType: "trial",
-                userID: userID,
-                prefix: window.currentTrial.prefix,
-                method: window.currentTrial.method,
-                choice: sel.value,
-                option1: window.currentTrial.order[1].type,
-                option2: window.currentTrial.order[2].type
-            };
-
-            // OPTIMISTIC UPDATE: Instant transition
             currentIndex++;
             localStorage.setItem('study_idx', currentIndex);
             document.querySelectorAll('input[name="choice"]').forEach(r => r.checked = false);
             initTrial();
-
-            // BACKGROUND SEND: Don't wait for Google
-            fetch(SCRIPT_URL, { method: 'POST', mode: 'no-cors', keepalive: true, body: JSON.stringify(payload) })
-            .catch(err => console.warn("Background sync failed", err));
         }
 
         function showFinalScreen() {
-            document.body.innerHTML = `
-                <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; text-align:center;">
-                    <h1 style="color:var(--primary);">Thank You!</h1>
-                    <p>Your results have been recorded background.</p>
-                    <button onclick="localStorage.clear(); location.reload();" style="margin-top:20px;">Restart Study</button>
-                </div>`;
+            document.body.innerHTML = `<div style="text-align:center; padding-top:20vh;"><h1>Finished!</h1><p>Thank you for your time.</p></div>`;
         }
 
         loadData();
