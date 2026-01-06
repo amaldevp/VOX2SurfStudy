@@ -11,15 +11,19 @@
     <style>
         :root { --primary: #2563eb; --bg: #f8fafc; --text: #1e293b; --card-bg: #ffffff; }
         body { margin: 0; font-family: 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+        
         #overlay { position: fixed; inset: 0; background: #0f172a; z-index: 10000; display: flex; align-items: center; justify-content: center; }
         .modal { background: white; padding: 2.5rem; border-radius: 16px; width: 450px; text-align: center; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5); }
+
         .header { background: white; padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0; position: relative; }
         #progress-bar-container { position: absolute; top: 0; left: 0; width: 100%; height: 5px; background: #e2e8f0; }
         #progress-bar { height: 100%; background: var(--primary); width: 0%; transition: width 0.4s; }
+
         #canvas-container { display: flex; flex: 1; padding: 20px; gap: 20px; background: #f1f5f9; align-items: stretch; min-height: 0; }
         .mesh-card { flex: 1; background: var(--card-bg); border-radius: 12px; border: 1px solid #e2e8f0; display: flex; flex-direction: column; overflow: hidden; }
         .mesh-title { padding: 10px; font-size: 0.8rem; font-weight: 800; text-align: center; background: #f8fafc; color: #64748b; text-transform: uppercase; border-bottom: 1px solid #f1f5f9; }
         .mesh-box { flex: 1; width: 100%; cursor: grab; background: white; }
+
         #ui-container { padding: 25px; background: white; border-top: 1px solid #e2e8f0; text-align: center; }
         .instruction-text { font-size: 1.1rem; font-weight: 600; color: #334155; margin-bottom: 15px; }
         .radio-group { display: inline-flex; gap: 20px; margin-bottom: 20px; background: #f1f5f9; padding: 12px 24px; border-radius: 50px; }
@@ -32,7 +36,7 @@
     <div id="overlay">
         <div class="modal">
             <h2 style="color: var(--primary);">Mesh Perceptual Study</h2>
-            <p style="text-align: left; color: #64748b; line-height: 1.5;">Compare the <b> Voxel Mesh</b> to the options and select the best match.</p>
+            <p style="text-align: left; color: #64748b; line-height: 1.5;">Compare the <b>Input Voxel</b> to the options and select the best match.</p>
             <input type="number" id="user-age" placeholder="Age" style="width:100%; padding:12px; margin-bottom:15px; border:1px solid #ddd; border-radius:8px;">
             <select id="user-gender" style="width:100%; padding:12px; margin-bottom:25px; border:1px solid #ddd; border-radius:8px;">
                 <option value="male">Male</option>
@@ -50,13 +54,13 @@
     </div>
 
     <div id="canvas-container">
-        <div class="mesh-card"><div class="mesh-title">Voxel mesh</div><div id="mesh1" class="mesh-box"></div></div>
+        <div class="mesh-card"><div class="mesh-title">Input voxel</div><div id="mesh1" class="mesh-box"></div></div>
         <div class="mesh-card"><div class="mesh-title">Option 1</div><div id="mesh2" class="mesh-box"></div></div>
         <div class="mesh-card"><div class="mesh-title">Option 2</div><div id="mesh3" class="mesh-box"></div></div>
     </div>
 
     <div id="ui-container">
-        <p class="instruction-text">Which shape best matches the voxel mesh?</p>
+        <p class="instruction-text">Which mesh best matches the input voxel?</p>
         <div class="radio-group">
             <label><input type="radio" name="choice" value="1"> Option 1</label>
             <label><input type="radio" name="choice" value="2"> Option 2</label>
@@ -75,61 +79,44 @@
         let activeScenes = [], isSyncing = false;
         const loader = new THREE.OBJLoader();
 
-      async function loadData() {
-    try {
-        const res = await fetch('prefixes.txt');
-        const text = await res.text();
-        const prefixes = text.split(/[\n,]+/).map(s => s.trim()).filter(p => p);
-        const methods = ['ndc', 'nmc', 'nmcl'];
-        
-        allTrials = [];
-        prefixes.forEach(p => {
-            methods.forEach(m => { allTrials.push({ prefix: p, method: m }); });
-        });
-        allTrials.sort(() => 0.5 - Math.random());
+        async function loadData() {
+            try {
+                const res = await fetch('prefixes.txt');
+                const text = await res.text();
+                const prefixes = text.split(/[\n,]+/).map(s => s.trim()).filter(p => p);
+                const methods = ['ndc', 'nmc', 'nmcl'];
+                allTrials = [];
+                prefixes.forEach(p => {
+                    methods.forEach(m => { allTrials.push({ prefix: p, method: m }); });
+                });
+                allTrials.sort(() => 0.5 - Math.random());
 
-        console.log("Data loaded. Checking profile status...");
-
-        // FIX: Only auto-start if the profile was definitely filled AND we aren't at the end
-        if (localStorage.getItem('study_profile_filled') === 'true') {
-            document.getElementById('overlay').style.setProperty('display', 'none', 'important');
-            initTrial();
-        } else {
-            // Force the overlay to be visible if no profile exists
-            document.getElementById('overlay').style.setProperty('display', 'flex', 'important');
-            console.log("Awaiting user profile input.");
+                // FIXED: Explicitly check for profile status
+                if (localStorage.getItem('study_profile_filled') === 'true') {
+                    document.getElementById('overlay').style.display = 'none';
+                    initTrial();
+                } else {
+                    document.getElementById('overlay').style.display = 'flex';
+                }
+            } catch (e) { console.error("Load failed:", e); }
         }
-    } catch (e) { 
-        console.error("Load failed:", e); 
-    }
-}
 
-function startStudy() {
-    const age = document.getElementById('user-age').value;
-    const gender = document.getElementById('user-gender').value;
+        function startStudy() {
+            const age = document.getElementById('user-age').value;
+            if(!age) return alert("Please enter your age.");
+            
+            localStorage.setItem('study_userID', userID);
+            localStorage.setItem('study_profile_filled', 'true');
+            localStorage.setItem('study_idx', '0');
+            
+            fetch(SCRIPT_URL, { 
+                method: 'POST', mode: 'no-cors', 
+                body: JSON.stringify({ dataType: "profile", userID, age, gender: document.getElementById('user-gender').value }) 
+            });
 
-    if(!age) {
-        alert("Please enter your age.");
-        return;
-    }
-
-    // 1. Save progress markers
-    localStorage.setItem('study_userID', userID);
-    localStorage.setItem('study_profile_filled', 'true');
-    localStorage.setItem('study_idx', '0');
-    currentIndex = 0;
-
-    // 2. Send profile data
-    fetch(SCRIPT_URL, { 
-        method: 'POST', 
-        mode: 'no-cors', 
-        body: JSON.stringify({ dataType: "profile", userID, age, gender }) 
-    });
-
-    // 3. Hide overlay and START the first trial
-    document.getElementById('overlay').style.setProperty('display', 'none', 'important');
-    initTrial();
-}
+            document.getElementById('overlay').style.display = 'none';
+            initTrial();
+        }
 
         function createThreeScene(divId, url) {
             const container = document.getElementById(divId);
@@ -142,8 +129,8 @@ function startStudy() {
             const h = container.clientHeight;
 
             const camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 1000);
-            // SET ANGULAR VIEW: Diagonal placement
-            camera.position.set(3.5, 2.5, 3.5); 
+            // Adjusted camera position for closer angular view
+            camera.position.set(2.8, 2.2, 2.8); 
             
             const renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(w, h);
@@ -159,12 +146,15 @@ function startStudy() {
                     c.geometry.computeVertexNormals();
                     c.material = new THREE.MeshNormalMaterial({ side: THREE.DoubleSide });
                 }});
+                
                 const box = new THREE.Box3().setFromObject(obj);
                 const size = box.getSize(new THREE.Vector3());
                 const center = box.getCenter(new THREE.Vector3());
                 
-                // Scale factor for isometric view filling the frame
-                const scale = 2.5 / Math.max(size.x, size.y, size.z);
+                // INCREASED SCALE FACTOR: 2.8 ensures it fills the angular view
+                const maxDim = Math.max(size.x, size.y, size.z);
+                const scale = 2.8 / maxDim;
+                
                 obj.scale.set(scale, scale, scale);
                 obj.position.sub(center.multiplyScalar(scale));
                 
@@ -255,9 +245,7 @@ function startStudy() {
         }
 
         function showFinalScreen() {
-            // CLEAR CACHE/LOCALSTORAGE
             localStorage.clear();
-            
             document.body.innerHTML = `
                 <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; text-align:center; background:#f8fafc; padding: 20px;">
                     <h1 style="color:var(--primary); font-size: 2.5rem;">Thank You!</h1>
