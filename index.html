@@ -11,7 +11,6 @@
     <style>
         :root { --primary: #2563eb; --bg: #f8fafc; --text: #1e293b; --card-bg: #ffffff; }
         
-        /* Force body to be hidden until logic is complete */
         body { 
             margin: 0; 
             font-family: 'Segoe UI', sans-serif; 
@@ -21,7 +20,8 @@
             display: flex; 
             flex-direction: column; 
             overflow: hidden;
-            display: none; /* Switched to display:none for stricter control */
+            /* Hide visually but keep layout dimensions for Three.js */
+            visibility: hidden; 
         }
         
         #overlay { 
@@ -32,6 +32,7 @@
             display: none; 
             align-items: center; 
             justify-content: center; 
+            visibility: visible; /* Always allow overlay to be visible */
         }
 
         .modal { background: white; padding: 2.5rem; border-radius: 16px; width: 450px; text-align: center; }
@@ -76,7 +77,7 @@
     </div>
 
     <div id="ui-container">
-        <p style="font-weight: 600;">Which mesh best matches the input voxel1?</p>
+        <p style="font-weight: 600;">Which mesh best matches the input voxel?</p>
         <div class="radio-group">
             <label><input type="radio" name="choice" value="1"> Option 1</label>
             <label><input type="radio" name="choice" value="2"> Option 2</label>
@@ -89,9 +90,6 @@
     <script>
         const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxqRsyl4fOi2Txt7klIrnDyeIYDitk4dtgAj5Y3twqRzR1MQAVfkLMr5ebEuqPOqv1z/exec"; 
         
-        // 1. FORCE CLEAR CACHE ON REFRESH (Optional: comment this out when study is live)
-        // localStorage.clear(); 
-
         let allTrials = []; 
         let currentIndex = parseInt(localStorage.getItem('study_idx')) || 0;
         let userID = localStorage.getItem('study_userID') || "ID_" + Math.random().toString(36).substr(2, 9);
@@ -100,10 +98,7 @@
 
         async function loadData() {
             try {
-                // Ensure UI is invisible while loading
-                document.body.style.display = 'none';
-
-                const res = await fetch('prefixes.txt', { cache: "no-store" }); // Force no-cache on fetch
+                const res = await fetch('prefixes.txt', { cache: "no-store" });
                 const text = await res.text();
                 const prefixes = text.split(/[\n,]+/).map(s => s.trim()).filter(p => p);
                 const methods = ['ndc', 'nmc', 'nmcl'];
@@ -114,19 +109,17 @@
 
                 const isProfileDone = localStorage.getItem('study_profile_filled') === 'true';
                 
-                // Set initial view state before showing body
                 if (isProfileDone) {
                     document.getElementById('overlay').style.display = 'none';
+                    document.body.style.visibility = 'visible';
                     initTrial();
                 } else {
                     document.getElementById('overlay').style.display = 'flex';
+                    document.body.style.visibility = 'visible';
                 }
-
-                document.body.style.display = 'flex'; // Final reveal
-
             } catch (e) { 
                 console.error(e);
-                document.body.style.display = 'flex';
+                document.body.style.visibility = 'visible';
             }
         }
 
@@ -136,12 +129,12 @@
             const scene = new THREE.Scene();
             scene.background = new THREE.Color(0xffffff);
             
-            const w = container.clientWidth;
-            const h = container.clientHeight;
+            // Re-calculating size now that visibility is handled
+            const w = container.clientWidth || 300; 
+            const h = container.clientHeight || 300;
 
             const camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 1000);
-            // Move camera back slightly to ensure no clipping
-            camera.position.set(3.2, 2.5, 3.2); 
+            camera.position.set(3.0, 2.2, 3.0); 
             
             const renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setSize(w, h);
@@ -162,8 +155,8 @@
                 const size = box.getSize(new THREE.Vector3());
                 const center = box.getCenter(new THREE.Vector3());
                 
-                // SCALE ADJUSTMENT: Reduced to 2.2 to prevent clipping at angular views
-                const scale = 2.2 / Math.max(size.x, size.y, size.z);
+                // Scale 2.0 ensures no clipping while still being large
+                const scale = 2.0 / Math.max(size.x, size.y, size.z);
                 
                 obj.scale.set(scale, scale, scale);
                 obj.position.sub(center.multiplyScalar(scale));
@@ -188,17 +181,18 @@
                 renderer.render(scene, camera);
             }
             animate();
-            return { camera, controls, cleanup };
+            return { camera, controls, cleanup, renderer, container };
         }
 
-        // Rest of functions (startStudy, initTrial, submitData, showFinalScreen)
         function startStudy() {
             const age = document.getElementById('user-age').value;
             if(!age) return alert("Please enter your age.");
             localStorage.setItem('study_userID', userID);
             localStorage.setItem('study_profile_filled', 'true');
             localStorage.setItem('study_idx', '0');
+            
             fetch(SCRIPT_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify({ dataType: "profile", userID, age, gender: document.getElementById('user-gender').value }) });
+            
             document.getElementById('overlay').style.display = 'none';
             initTrial();
         }
@@ -206,19 +200,65 @@
         function initTrial() {
             if (currentIndex >= allTrials.length) return showFinalScreen();
             activeScenes.forEach(s => s.cleanup());
+
             const trial = allTrials[currentIndex];
             document.getElementById('step-counter').innerText = `Step ${currentIndex + 1} of ${allTrials.length}`;
             document.getElementById('progress-bar').style.width = (currentIndex / allTrials.length) * 100 + "%";
-            const pool = [{ type: 'SV', url: `sv/${trial.prefix}.obj` }, { type: trial.method.toUpperCase(), url: `${trial.method}/${trial.prefix}.obj` }].sort(() => Math.random() - 0.5);
-            window.currentTrial = { prefix: trial.prefix, method: trial.method, order: [{type: 'VOX', url: `vox/${trial.prefix}.obj`}, pool[0], pool[1]] };
-            activeScenes = [createThreeScene('mesh1', window.currentTrial.order[0].url), createThreeScene('mesh2', window.currentTrial.order[1].url), createThreeScene('mesh3', window.currentTrial.order[2].url)];
-            activeScenes.forEach(m => { m.controls.addEventListener('change', () => { if (isSyncing) return; isSyncing = true; activeScenes.forEach(s => { if(s !== m) { s.camera.position.copy(m.camera.position); s.camera.quaternion.copy(m.camera.quaternion); s.controls.target.copy(m.controls.target); }}); isSyncing = false; }); });
+
+            const pool = [
+                { type: 'SV', url: `sv/${trial.prefix}.obj` },
+                { type: trial.method.toUpperCase(), url: `${trial.method}/${trial.prefix}.obj` }
+            ].sort(() => Math.random() - 0.5);
+
+            window.currentTrial = { 
+                prefix: trial.prefix, 
+                method: trial.method, 
+                order: [{type: 'VOX', url: `vox/${trial.prefix}.obj`}, pool[0], pool[1]] 
+            };
+
+            activeScenes = [
+                createThreeScene('mesh1', window.currentTrial.order[0].url),
+                createThreeScene('mesh2', window.currentTrial.order[1].url),
+                createThreeScene('mesh3', window.currentTrial.order[2].url)
+            ];
+
+            // Handle browser resize during trial
+            window.onresize = () => {
+                activeScenes.forEach(s => {
+                    const w = s.container.clientWidth;
+                    const h = s.container.clientHeight;
+                    s.camera.aspect = w / h;
+                    s.camera.updateProjectionMatrix();
+                    s.renderer.setSize(w, h);
+                });
+            };
+
+            activeScenes.forEach(m => {
+                m.controls.addEventListener('change', () => {
+                    if (isSyncing) return;
+                    isSyncing = true;
+                    activeScenes.forEach(s => { if(s !== m) {
+                        s.camera.position.copy(m.camera.position);
+                        s.camera.quaternion.copy(m.camera.quaternion);
+                        s.controls.target.copy(m.controls.target);
+                    }});
+                    isSyncing = false;
+                });
+            });
         }
 
         function submitData() {
             const sel = document.querySelector('input[name="choice"]:checked');
             if(!sel) return alert("Please select an option.");
-            const payload = { dataType: "trial", userID: userID, prefix: window.currentTrial.prefix, method: window.currentTrial.method, choice: sel.value, option1: window.currentTrial.order[1].type, option2: window.currentTrial.order[2].type };
+            const payload = { 
+                dataType: "trial", 
+                userID: userID, 
+                prefix: window.currentTrial.prefix, 
+                method: window.currentTrial.method, 
+                choice: sel.value, 
+                option1: window.currentTrial.order[1].type, 
+                option2: window.currentTrial.order[2].type 
+            };
             currentIndex++;
             localStorage.setItem('study_idx', currentIndex);
             document.querySelectorAll('input[name="choice"]').forEach(r => r.checked = false);
@@ -228,7 +268,7 @@
 
         function showFinalScreen() {
             localStorage.clear();
-            document.body.innerHTML = `<div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; text-align:center; background:#f8fafc;"><h1 style="color:var(--primary);">Thank You!</h1><button onclick="location.reload()" style="padding:1rem 2rem; background:var(--primary); color:white; border:none; border-radius:8px; cursor:pointer;">Restart Study</button></div>`;
+            document.body.innerHTML = `<div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; text-align:center; background:#f8fafc; visibility:visible;"><h1 style="color:var(--primary);">Thank You!</h1><button onclick="location.reload()" style="padding:1rem 2rem; background:var(--primary); color:white; border:none; border-radius:8px; cursor:pointer;">Restart Study</button></div>`;
         }
 
         loadData();
