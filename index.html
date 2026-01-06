@@ -76,7 +76,7 @@
     </div>
 
     <div id="ui-container">
-        <p style="font-weight: 600;">Which mesh best matches the input voxel?</p>
+        <p style="font-weight: 600;">Which mesh best matches the input voxel1?</p>
         <div class="radio-group">
             <label><input type="radio" name="choice" value="1"> Option 1</label>
             <label><input type="radio" name="choice" value="2"> Option 2</label>
@@ -217,7 +217,7 @@
 
         function submitData() {
             const sel = document.querySelector('input[name="choice"]:checked');
-            if(!sel) return alert("Please select an option1.");
+            if(!sel) return alert("Please select an option.");
             const payload = { dataType: "trial", userID: userID, prefix: window.currentTrial.prefix, method: window.currentTrial.method, choice: sel.value, option1: window.currentTrial.order[1].type, option2: window.currentTrial.order[2].type };
             currentIndex++;
             localStorage.setItem('study_idx', currentIndex);
