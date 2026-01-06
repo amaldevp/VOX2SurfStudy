@@ -217,7 +217,7 @@
 
         function submitData() {
             const sel = document.querySelector('input[name="choice"]:checked');
-            if(!sel) return alert("Please select an option.");
+            if(!sel) return alert("Please select an option1.");
             const payload = { dataType: "trial", userID: userID, prefix: window.currentTrial.prefix, method: window.currentTrial.method, choice: sel.value, option1: window.currentTrial.order[1].type, option2: window.currentTrial.order[2].type };
             currentIndex++;
             localStorage.setItem('study_idx', currentIndex);
